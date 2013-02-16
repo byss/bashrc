@@ -38,7 +38,7 @@ export CYAN_BG_COLOR='\e[46m'
 export WHITE_BG_COLOR='\e[47m'
 
 # Prompt
-export PS1="${NORMAL}${GREEN_COLOR}"'\u\['"${NORMAL}"'\]@\H:\['"${BOLD}${RED_COLOR}"'\]\w\['"${NORMAL}"'\] \['"${BOLD}${BLUE_COLOR}"'[\t]\$ '"${NORMAL}"
+export PS1='\['"${NORMAL}${GREEN_COLOR}"'\]\u\['"${NORMAL}"'\]@\H:\['"${BOLD}${RED_COLOR}"'\]\w\['"${NORMAL}"'\] \['"${BOLD}${BLUE_COLOR}"'\][\t]\$ \['"${NORMAL}"'\]'
 export PS2='	> '
 
 # Editor
