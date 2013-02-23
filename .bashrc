@@ -121,7 +121,7 @@ hr() {
 }
 
 # Alias template
-alias_func_template() {
+__alias_func_template() {
 	local orig_binary="$(which ${cmd})"
 	echo 'OLDPATH="${PATH}"'
 	echo 'unset PATH'
@@ -131,7 +131,7 @@ alias_func_template() {
 	echo '  local disable_ref2="__DISABLE_'${cmd^^*}'_MACRO"'
 	echo '  local src_cmd="${orig_'${cmd}'}"'
 	echo '  if [ -z "${!disable_ref}" ] && [ -z "${!disable_ref2}" ]; then'
-	echo '    "${src_cmd}"' ${addn_args} '"$@"'
+	echo '    "${src_cmd}"' ${addn_pre_args} '"$@"' ${addn_post_args}
 	echo '  else'
 	echo '    "${src_cmd}" "$@"'
 	echo '  fi'
@@ -141,23 +141,27 @@ alias_func_template() {
 }
 
 # Wrapper for alias_func_template
-set_default_args() {
+__set_default_args() {
 	local cmd="$1"
 	shift
 	
-	local addn_args="$*"
-	local code="$(alias_func_template)"
+	local addn_pre_args="$*"
+	local code="$(__alias_func_template)"
 	eval "${code}"
 }
 
 # Colored output for ls & grep
-set_default_args ls     --color=auto -la
-set_default_args grep   --color=auto
-set_default_args egrep  --color=auto
-set_default_args fgrep  --color=auto
-set_default_args zgrep  --color=auto
-set_default_args zegrep --color=auto
-set_default_args zfgrep --color=auto
+__set_default_args ls     --color=auto -la
+__set_default_args grep   --color=auto
+__set_default_args egrep  --color=auto
+__set_default_args fgrep  --color=auto
+__set_default_args zgrep  --color=auto
+__set_default_args zegrep --color=auto
+__set_default_args zfgrep --color=auto
+
+__set_default_args nano   -c  # Line numbers
+__set_default_args less   -F  # Quit if one screen
+__set_default_args diff   -ru # Unified and recursive diff
 
 if ! which gedit >/dev/null 2>/dev/null; then
 	# Override gedit only if it's not in $PATH (OSX)
@@ -202,7 +206,7 @@ git_branches() {
 }
 
 # Template of function from python's urllib
-pyurlalias_template() {
+__pyurlalias_template() {
 	arg="$1"
 	local name="${arg%%=*}"
 	local func="${arg#*=}"
@@ -213,16 +217,16 @@ pyurlalias_template() {
 }
 
 # Function generator
-pyurlalias() {
-	local code="$(pyurlalias_template $@)"
+__pyurlalias() {
+	local code="$(__pyurlalias_template $@)"
 	eval "${code}"
 }
 
 # Encoding & decoding URL addresses
-pyurlalias urlencode=quote
-pyurlalias urlencode_p=quote_plus
-pyurlalias urldecode=unquote
-pyurlalias urldecode_p=unquote_plus
+__pyurlalias urlencode=quote
+__pyurlalias urlencode_p=quote_plus
+__pyurlalias urldecode=unquote
+__pyurlalias urldecode_p=unquote_plus
 
 # To get some attention for background terminal
 noize() {
@@ -237,7 +241,7 @@ noize() {
 
 # Adds all files to SVN
 svnaddall() {
-	for i in *; do svn add $i@; done
+	for i in *; do svn add "${i}@"; done
 }
 
 # Counts number of lines, added, removed and edited by me
@@ -250,8 +254,8 @@ git_conflicts() {
 	git status | grep 'both modified:' | awk '{print $4}'
 }
 
-# __github [source] [action] [repo] [...]
-__github() {
+# _github [source] [action] [repo] [...]
+_github() {
 	local src="$1"
 	shift
 	local action="$1"
@@ -264,12 +268,12 @@ __github() {
 
 # githubCP [action] [repo] [...]
 githubCP() {
-	__github "CleverPumpkin" "$@"
+	_github "CleverPumpkin" "$@"
 }
 
 # githubCP [action] [repo] [...]
 githubMe() {
-	__github "byss" "$@"
+	_github "byss" "$@"
 }
 
 # Copies Retina & non-Retina images at the same time
@@ -333,16 +337,56 @@ hgrep() {
 	grep "${pattern}" ~/.bash_history
 }
 
-# Export all defined here functions
-declare -F | while read decl; do
-	func="${decl##* }"
-	func_info=$($(echo "${decl}" | sed 's/-f/-F/'))
-	source_file="${func_info##* }"
-	if [ "${source_file}" = "${BASH_SOURCE}" ]; then
-		$(echo "${decl}" | sed 's/declare/export/')
-	fi
-done
-unset func
-unset func_info
-unset source_file
+# Automatically adds echo "\n"; to every php -r call
+__set_php_linewrap() {
+  local cmd="php"
+  local addn_post_args="; echo"
+  local code="$(__alias_func_template)"
+  eval "${code}"
+}
+__set_php_linewrap
 
+# Lists all functions defined in this file
+bashrc_funcs() {
+	local print_int=
+	if [ "${1,,}" = "yes" ]; then
+		print_int="yes"
+	fi
+	declare -F | while read decl; do
+		local func="${decl##* }"
+		local func_info=$($(echo "${decl}" | sed 's/-f/-F/'))
+		local source_file="${func_info##* }"
+		if [ "${source_file}" = "${BASH_SOURCE}" ]; then
+			if [ "${func::2}" != "__" ] || [ ! -z "${print_int}" ]; then
+				echo "${func}"
+			fi
+		fi
+	done
+}
+
+# Prints documenting comment for a functions defined here
+# Works with multiline comments too
+# Usage: func_help [FUNCTION NAME]
+func_help() {
+	local func="${1:-func_help}"
+	local info_code=$(declare -F "${func}" | awk '{print "local first_line=\""$2"\""; printf "local source_file=\""; for (i = 3; i < NF; i++) {printf $i" ";} printf $NF"\"";}')
+	eval "${info_code}"
+	local help_lines=0
+	while head -n $((first_line - help_lines - 1)) "${source_file}" | tail -n 1 | egrep -o '^\s*#' >/dev/null 2>/dev/null; do
+		help_lines=$((help_lines + 1))
+	done
+	if [ $((help_lines)) -gt 0 ]; then
+		echo "Help on ${func}:"
+		head -n $((first_line - 1)) "${source_file}" | tail -n $((help_lines)) | sed -E 's/^[[:space:]]*#[[:space:]]*/  /'
+		if [ "${func}" = "${FUNCNAME}" ]; then
+			echo '\n  Functions, declared in this .bashrc:'
+			bashrc_funcs | sed 's/^/    /'
+		fi
+	fi
+}
+
+diff_dotfiles() {
+	for file in *; do
+		diff "${file}" ~/"${file}"
+	done | less
+}
