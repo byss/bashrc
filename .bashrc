@@ -160,13 +160,12 @@ __set_default_args zegrep --color=auto
 __set_default_args zfgrep --color=auto
 
 __set_default_args nano   -c  # Line numbers
-__set_default_args less   -F  # Quit if one screen
 __set_default_args diff   -ru # Unified and recursive diff
 
 if ! which gedit >/dev/null 2>/dev/null; then
 	# Override gedit only if it's not in $PATH (OSX)
 	gedit() {
-		open -a gedit "$@"
+		open -a textwrangler "$@"
 	}
 fi
 
@@ -254,16 +253,23 @@ git_conflicts() {
 	git status | grep 'both modified:' | awk '{print $4}'
 }
 
+# _git_srv [srv] [source] [action] [repo] [...]
+_git_srv() {
+	local srv="$1"
+	shift
+  local src="$1"
+  shift
+  local action="$1"
+  shift
+  local repo="$1"
+  shift
+
+  git "${action}" "${srv}/${src}/${repo}" "$@"
+}
+
 # _github [source] [action] [repo] [...]
 _github() {
-	local src="$1"
-	shift
-	local action="$1"
-	shift
-	local repo="$1"
-	shift
-
-	git "${action}" "https://github.com/${src}/${repo}" "$@"
+	_git_srv "https://github.com" "$@"
 }
 
 # githubCP [action] [repo] [...]
@@ -274,6 +280,11 @@ githubCP() {
 # githubCP [action] [repo] [...]
 githubMe() {
 	_github "byss" "$@"
+}
+
+# byssGit [action] [repo] [...]
+byssGit() {
+	_git_srv "ssh://byss-home.tk:23293" "git" "$@"
 }
 
 # Copies Retina & non-Retina images at the same time
