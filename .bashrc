@@ -407,7 +407,6 @@ __wtfhd_sigint_trap_tmpl() {
 	echo '__wtfhd_sigint_trap() {'
 	local oldTrap="$1"
 	echo "	$oldTrap"
-	echo "	trap \"${oldTrap:--}\" SIGINT"
 	echo '}'
 }
 
