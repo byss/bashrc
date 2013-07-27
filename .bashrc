@@ -103,6 +103,7 @@ expand_path() {
 
 # Path
 expand_path "/opt/local/libexec/gnubin" # GNU Coreutils from MacPorts
+expand_path "/opt/local/bin:/opt/local/sbin" # MacPorts binaries
 expand_path "~/local/bin" # some stuff
 expand_path "~/adt-bundle-mac-x86_64/sdk/tools:~/adt-bundle-mac-x86_64/sdk/platform-tools" # Android SDK
 
@@ -400,4 +401,11 @@ diff_dotfiles() {
 	for file in *; do
 		diff "${file}" ~/"${file}"
 	done | less
+}
+
+wtfhd() {
+	local path="${1:-/}"
+	pushd "${path}" > /dev/null
+	du -ahd 1 2>/dev/null | sort -h
+	popd > /dev/null
 }
