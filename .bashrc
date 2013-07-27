@@ -403,9 +403,44 @@ diff_dotfiles() {
 	done | less
 }
 
+__wtfhd_sigint_trap_tmpl() {
+	echo '__wtfhd_sigint_trap() {'
+	local oldTrap="$1"
+	echo "	$oldTrap"
+	echo "	trap \"${oldTrap:--}\" SIGINT"
+	echo '}'
+}
+
 wtfhd() {
+	local oldSigintTrap="$(trap -p SIGINT | awk '{print $3}' | sed "s/^'//;s/'$//")"
+	eval "$(__wtfhd_sigint_trap_tmpl "${oldSigintTrap}")"
+	trap __wtfhd_sigint_trap SIGINT
+
 	local path="${1:-/}"
 	pushd "${path}" > /dev/null
-	du -ahd 1 2>/dev/null | sort -h
+	local sizeInfo=$(du -ahd 1 2>/dev/null | sort -h)
+	local sizeInfoRev=$(echo "${sizeInfo}" | tac)
+	unset WTFHD_LARGEST_DIR
+	local largestDir="$(
+		echo "${sizeInfoRev}" | while read sizeInfoLine; do
+			local infoDir=$(echo "${sizeInfoLine}" | awk '{print $2}')
+			if [ "${infoDir}" != '.' ] && [ -d "${infoDir}" ] ; then
+				py_realpath "${infoDir}"
+				break
+			fi
+		done
+	)"
+	if [ ! -z "${largestDir}" ]; then
+		export WTFHD_LARGEST_DIR="${largestDir}"
+	fi
+	echo "${sizeInfo}"
 	popd > /dev/null
+
+	trap "${oldTrap:--}" SIGINT
+}
+
+cdToLargest() {
+	if [ ! -z "${WTFHD_LARGEST_DIR}" ] && [ -d "${WTFHD_LARGEST_DIR}" ]; then
+		cd "${WTFHD_LARGEST_DIR}"
+	fi
 }

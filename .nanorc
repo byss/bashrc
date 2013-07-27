@@ -2,7 +2,7 @@ unset backup        # Backup files are useless & annoying
 unset casesensitive # Case-insensitive search by default
 set   const         # Shows file position all the time
 set   historylog    # Save find/replace history
-set   mouse         # Won't harm
+unset mouse         # Nano's mouse support is weird
 unset nonewlines    # Newline at the end of file must present for greater justice
 set   nowrap        # Wrapped lines are hard to parse
 set   regexp        # Search is always about regexps
