@@ -1,0 +1,32 @@
+unset backup        # Backup files are useless & annoying
+unset casesensitive # Case-insensitive search by default
+set   const         # Shows file position all the time
+set   historylog    # Save find/replace history
+set   mouse         # Won't harm
+unset nonewlines    # Newline at the end of file must present for greater justice
+set   nowrap        # Wrapped lines are hard to parse
+set   regexp        # Search is always about regexps
+set   smarthome     # Every editor should enable this feature
+set   smooth        # Smooth scrolling is a paradise
+set   suspend       # ^Z for Nano may be handy sometimes
+set   tabsize 2     # It's my favorite tab size, I'd never change this setting
+unset tabstospaces  # Just to be sure that I'm using tabs, not spaces
+set   tempfile      # Why the hell should I be wanting to discard file changes?
+unset view          # I thought it was text _editor_, not _viewer_
+
+# Here goes syntax highlighting for languages _I_ need (paths for Macports@OSX)
+include /opt/local/share/nano/asm.nanorc      # Real programmer just can't exclude this line
+include /opt/local/share/nano/awk.nanorc      # Sometimes I use it
+include /opt/local/share/nano/c.nanorc        # Same inclusion reason as for ASM
+include /opt/local/share/nano/css.nanorc      # Well, web-shit is sometimes last UI rendering hope
+include /opt/local/share/nano/html.nanorc     # CSS companion
+include /opt/local/share/nano/java.nanorc     # What if I'd need to dive into Android deelopement?
+include /opt/local/share/nano/makefile.nanorc # Sources are useless without makefiles
+include /opt/local/share/nano/nanorc.nanorc   # I don't need this. Wait. OHSHI~
+include /opt/local/share/nano/objc.nanorc     # That's my work and, coincidentally, passion
+include /opt/local/share/nano/patch.nanorc    # Git & others insisted on this inclusion
+include /opt/local/share/nano/php.nanorc      # It's useful for ten-lines-projects
+include /opt/local/share/nano/python.nanorc   # Python is my secondly preferrable developement language
+include /opt/local/share/nano/sh.nanorc       # If you look at my .bashrc you'll see that I _need_ Bash syntax highlighting
+include /opt/local/share/nano/xml.nanorc      # XML API answers should look pretty even in Terminal
+include ~/.nanorc.json                        # Thank you, Aapo Rantalainen! It's strange that his json.nanorc is not in nano yet.

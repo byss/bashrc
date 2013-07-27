@@ -1,0 +1,55 @@
+##JSON
+#http://www.json.org/
+# By: Aapo Rantalainen 
+# GPLv3 or newer
+syntax "json" "\.json$"
+
+#value
+#starts with colon : (entries on list doesn't start)
+#any number of spaces
+#it can have left bracket [ (starts sub-object)
+#any number of spaces
+#quotation mark "
+#then there can be anything (TODO: should not allow " or \)
+#ending quotation mark "
+color brightmagenta ":?[\[?[:space:]]*\".+\""
+
+#keyword
+#starts with quotation mark "
+#then there can be anything (TODO: should not allow " or \)
+#ending quotation mark "
+#any number of spaces
+#ends on color :
+color blue "\".+\"[[:space:]]*:"
+
+
+#reserved words
+color brightyellow "(true|false|null)"
+
+#numbers (when used as value)
+color brightyellow ":[[:space:]]*\-?[0-9\.]+"
+
+#hex-numbers (when used as value)
+color brightyellow ":[[:space:]]*\"\#[A-Fa-f0-9]+\""
+
+#Control marks
+color blue "\["
+color blue "\]"
+color red "\{"
+color red "\}"
+color red ","
+color red ":"
+
+#Comments (with #. Not standard json, but json-glib used to use this)
+#color white "(^|[[:space:]])#.*$"
+color white "(^|[[:space:]])#.*$"
+#color white "(^|.*[[:space:]])#.*$"
+
+#color white "([[:space:]])#.*$"
+
+color white "(^|[[:space:]])//.*$"
+
+
+## Trailing whitespace
+color ,green "[[:space:]]+$"
+
