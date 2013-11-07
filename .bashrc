@@ -86,7 +86,7 @@ update_title() {
 expand_path() {
 	local old_ifs="${IFS}"
 	local new_path="${PATH}"
-	
+
 	IFS=':'
 	new_dirs=( "$@" )
 	for dirs_string in "${new_dirs[@]}"; do
@@ -110,14 +110,14 @@ expand_path "~/adt-bundle-mac-x86_64/sdk/tools:~/adt-bundle-mac-x86_64/sdk/platf
 # Thick black horizontal line
 hr() {
 	local cols=$((COLUMNS + 0)) # cols to int
-	
+
 	echo -ne "${BLACK_COLOR}${BLACK_BG_COLOR}"
 	if [ ${cols} -gt 0 ]; then
 		python -c 'print " " * '$((cols))
 	else
 		echo -ne '\x1b\n'
 	fi
-	
+
 	echo -ne "${NORMAL}"
 }
 
@@ -145,7 +145,7 @@ __alias_func_template() {
 __set_default_args() {
 	local cmd="$1"
 	shift
-	
+
 	local addn_pre_args="$*"
 	local code="$(__alias_func_template)"
 	eval "${code}"
@@ -160,8 +160,9 @@ __set_default_args zgrep  --color=auto
 __set_default_args zegrep --color=auto
 __set_default_args zfgrep --color=auto
 
-__set_default_args nano   -c  # Line numbers
-__set_default_args diff   -ru # Unified and recursive diff
+__set_default_args xargs  -d '\\\\n' # Separate args on newline only
+__set_default_args nano   -c         # Line numbers
+__set_default_args diff   -ru        # Unified and recursive diff
 
 if ! which gedit >/dev/null 2>/dev/null; then
 	# Override gedit only if it's not in $PATH (OSX)
@@ -200,7 +201,7 @@ pretty_date() {
 
 # Pseudographic version of GitHub's Network pane
 git_branches() {
-	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s" 
+	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s"
 	# TODO: datetime update
 	#| awk '{printf "%s\t%s\t", $1, $2; system ("echo pretty_date $3"); for (i = 4; i <= NF; i++) {printf "%s ", $i}; printf "\n"}'
 }
@@ -210,7 +211,7 @@ __pyurlalias_template() {
 	arg="$1"
 	local name="${arg%%=*}"
 	local func="${arg#*=}"
-	
+
 	echo "${name}"'() {'
 	echo '  python -c "import sys, urllib; print urllib.'"${func}"' (sys.stdin.read ())" "$@"'
 	echo '}'
@@ -232,7 +233,7 @@ __pyurlalias urldecode_p=unquote_plus
 noize() {
 	local beeps="${1:-5}"
 	local delay="${2:-0.1}"
-	
+
 	for i in $(seq 1 "${beeps}"); do
 		echo -ne '\a'
 		sleep "${delay}"
@@ -358,6 +359,24 @@ __set_php_linewrap() {
 }
 __set_php_linewrap
 
+diff_dotfiles() {
+	for file in *; do
+		diff "${file}" ~/"${file}"
+	done | less
+}
+
+gobjc() {
+	gcc -framework Foundation -include 'Foundation/Foundation.h' "$@"
+}
+
+clobjc() {
+	clang -framework Foundation -include 'Foundation/Foundation.h' "$@"
+}
+
+jsonpp() {
+	python -c 'import sys, json; print json.dumps (json.loads (sys.stdin.read ()), ensure_ascii = False, indent = 2, separators = (",", ": "))'
+}
+
 # Lists all functions defined in this file
 bashrc_funcs() {
 	local print_int=
@@ -394,52 +413,5 @@ func_help() {
 			echo '\n  Functions, declared in this .bashrc:'
 			bashrc_funcs | sed 's/^/    /'
 		fi
-	fi
-}
-
-diff_dotfiles() {
-	for file in *; do
-		diff "${file}" ~/"${file}"
-	done | less
-}
-
-__wtfhd_sigint_trap_tmpl() {
-	echo '__wtfhd_sigint_trap() {'
-	local oldTrap="$1"
-	echo "	$oldTrap"
-	echo '}'
-}
-
-wtfhd() {
-	local oldSigintTrap="$(trap -p SIGINT | awk '{print $3}' | sed "s/^'//;s/'$//")"
-	eval "$(__wtfhd_sigint_trap_tmpl "${oldSigintTrap}")"
-	trap __wtfhd_sigint_trap SIGINT
-
-	local path="${1:-/}"
-	pushd "${path}" > /dev/null
-	local sizeInfo=$(du -ahd 1 2>/dev/null | sort -h)
-	local sizeInfoRev=$(echo "${sizeInfo}" | tac)
-	unset WTFHD_LARGEST_DIR
-	local largestDir="$(
-		echo "${sizeInfoRev}" | while read sizeInfoLine; do
-			local infoDir=$(echo "${sizeInfoLine}" | awk '{print $2}')
-			if [ "${infoDir}" != '.' ] && [ -d "${infoDir}" ] ; then
-				py_realpath "${infoDir}"
-				break
-			fi
-		done
-	)"
-	if [ ! -z "${largestDir}" ]; then
-		export WTFHD_LARGEST_DIR="${largestDir}"
-	fi
-	echo "${sizeInfo}"
-	popd > /dev/null
-
-	trap "${oldTrap:--}" SIGINT
-}
-
-cdToLargest() {
-	if [ ! -z "${WTFHD_LARGEST_DIR}" ] && [ -d "${WTFHD_LARGEST_DIR}" ]; then
-		cd "${WTFHD_LARGEST_DIR}"
 	fi
 }
