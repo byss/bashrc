@@ -1,5 +1,9 @@
 #!/bin/bash
 
+##### DEBUG ONLY #####
+# set -v
+######################
+
 # Localization
 export LANG='en_US.UTF-8'
 export LC_COLLATE='en_US.UTF-8'
@@ -42,7 +46,7 @@ export PS1='\['"${NORMAL}${GREEN_COLOR}"'\]\u\['"${NORMAL}"'\]@\H:\['"${BOLD}${R
 export PS2='	> '
 
 # Editor
-export EDITOR='/usr/bin/nano'
+export EDITOR='/usr/local/bin/nano'
 
 # Python startup
 export PYTHONSTARTUP="${HOME}/.pythonrc.py"
@@ -54,23 +58,31 @@ export HISTSIZE=1048576
 # History tuning
 export HISTCONTROL="ignoredups"
 
+# Saves history to HISTFILE ASAP
+export PROMPT_COMMAND="history -a; ${PROMPT_COMMAND}"
+
 # Shell options
-shopt -s autocd # ./dir <=> cd dir
-shopt -s cdspell # autocorrection
-shopt -s checkwinsize # always have actual $LINES & $COLUMNS
-shopt -u cmdhist # use semicolon instead of newline
-shopt -u direxpand # do not expand tilde and so on
-shopt -s dotglob # echo * sees dotfiles
-shopt -s extdebug # MOAR debugging
-shopt -s globstar # '**' support
-shopt -u gnu_errfmt # POSIX, not GNU error messages
-shopt -s histappend # Appends history to $HISTFILE instead of overwriting
-shopt -s huponexit # kill all bg jobs on exit
-shopt -u lithist # use semicolons instead of newlines in history
+shopt -s autocd                  # ./dir <=> cd dir
+shopt -s cdspell                 # autocorrection
+shopt -s checkwinsize            # always have actual $LINES & $COLUMNS
+shopt -u cmdhist                 # use semicolon instead of newline
+shopt -u direxpand               # do not expand tilde and so on
+shopt -s dotglob                 # echo * sees dotfiles
+shopt -s extdebug                # MOAR debugging
+shopt -s globstar                # '**' support
+shopt -u gnu_errfmt              # POSIX, not GNU error messages
+shopt -s histappend              # Appends history to $HISTFILE instead of overwriting
+shopt -s huponexit               # kill all bg jobs on exit
+shopt -u lithist                 # use semicolons instead of newlines in history
 shopt -s no_empty_cmd_completion # empty command completion is stupid
-shopt -u nocaseglob # filenames ARE case-sensitive
-shopt -u nocasematch # comparisons ARE case-sensitive
-shopt -s xpg_echo # echo has '-e' by default
+shopt -u nocaseglob              # filenames ARE case-sensitive
+shopt -u nocasematch             # comparisons ARE case-sensitive
+shopt -s xpg_echo                # echo has '-e' by default
+
+# bash-completion
+if [ -f /usr/local/etc/bash_completion.sh ]; then
+	. /usr/local/etc/bash_completion.sh
+fi
 
 # Reloads bash environment
 r() {
@@ -86,7 +98,7 @@ update_title() {
 expand_path() {
 	local old_ifs="${IFS}"
 	local new_path="${PATH}"
-
+	
 	IFS=':'
 	new_dirs=( "$@" )
 	for dirs_string in "${new_dirs[@]}"; do
@@ -102,74 +114,231 @@ expand_path() {
 }
 
 # Path
-expand_path "/opt/local/libexec/gnubin" # GNU Coreutils from MacPorts
-expand_path "/opt/local/bin:/opt/local/sbin" # MacPorts binaries
 expand_path "~/local/bin" # some stuff
-expand_path "~/adt-bundle-mac-x86_64/sdk/tools:~/adt-bundle-mac-x86_64/sdk/platform-tools" # Android SDK
+expand_path "/usr/local/opt/coreutils/libexec/gnubin" # Homebrew
+
+MANPATH="/usr/local/opt/coreutils/libexec/gnuman:$MANPATH"
 
 # Thick black horizontal line
 hr() {
 	local cols=$((COLUMNS + 0)) # cols to int
-
+	
 	echo -ne "${BLACK_COLOR}${BLACK_BG_COLOR}"
 	if [ ${cols} -gt 0 ]; then
 		python -c 'print " " * '$((cols))
 	else
 		echo -ne '\x1b\n'
 	fi
-
+	
 	echo -ne "${NORMAL}"
 }
 
-# Alias template
-__alias_func_template() {
-	local orig_binary="$(which ${cmd})"
-	echo 'OLDPATH="${PATH}"'
-	echo 'unset PATH'
-	echo "${cmd}"'() {'
-	echo '  local orig_'"${cmd}"'="'"${orig_binary}"'"'
-	echo '  local disable_ref="__DISABLE_'${cmd^^*}'_ALIAS"'
-	echo '  local disable_ref2="__DISABLE_'${cmd^^*}'_MACRO"'
-	echo '  local src_cmd="${orig_'${cmd}'}"'
-	echo '  if [ -z "${!disable_ref}" ] && [ -z "${!disable_ref2}" ]; then'
-	echo '    "${src_cmd}"' ${addn_pre_args} '"$@"' ${addn_post_args}
-	echo '  else'
-	echo '    "${src_cmd}" "$@"'
-	echo '  fi'
-	echo '}'
-	echo 'export PATH="${OLDPATH}"'
-	echo 'unset OLDPATH'
+__random_ext() {
+	local extChars="abcdefghijklmnopqrstuvwxyz1234567890"
+	local result=""
+	for i in $(seq 1 10); do
+		result="${result}${extChars:$(($RANDOM % ${#extChars})):1}"
+	done
+	echo "${result}"
 }
 
-# Wrapper for alias_func_template
-__set_default_args() {
+__backup_command() {
 	local cmd="$1"
+	local cmdType="$(type -t "${cmd}")"
+	if [ "$?" -ne 0 ]; then
+		echo "__backup_command: ${cmd}: command not found" >&2
+		return 1
+	fi
+
+	local backupCmd=""
+	while :; do
+		backupCmd="__${cmd}_backup_$(__random_ext)"
+		if ! type -t "${backupCmd}" >/dev/null; then
+			break
+		fi
+	done
+
+	case "${cmdType}" in
+		"alias")
+			eval "$(alias "${cmd}" | sed "s/^alias ${cmd}=/alias ${backupCmd}=/")"
+			unalias "${cmd}"
+			;;
+
+		"keyword")
+			echo "__backup_command: ${cmd}: is shell keyword" >&2
+			return 1
+			;;
+
+		"function")
+			eval "${backupCmd}() { $(declare -f ${cmd} | tail -n +2) }"
+			unset -f "${cmd}"
+			;;
+
+		"builtin")
+			backupCmd="builtin ${cmd}"
+			;;
+
+		"file")
+			backupCmd="$(which ${cmd})"
+			;;
+	esac
+
+	echo "${backupCmd}"
+}
+
+__extend_command_func() {
+	local cmd="${1}"
+	shift
+	local ORIG_CMD="$(__backup_command "${cmd}")"
+	if [ "$?" -ne 0 ]; then
+		return 1
+	fi
+	local funcName="${1}"
+	shift
+	local funcArgs="$@"
+
+	echo "${cmd}"'() {'
+	echo '	if type -t "${__DISABLE_'"${cmd^^}"'_MACRO}" >/dev/null || type -t "${__DISABLE_'"${cmd^^}"'_ALIAS}" >/dev/null; then'
+	echo '		'"${ORIG_CMD}" '"$@"'
+	echo '	else'
+	eval "${funcName} ${funcArgs}"
+	echo '	fi'
+	echo '}'
+}
+
+__extend_command_args_helper() {
+	local cmd="${1}"
 	shift
 
-	local addn_pre_args="$*"
-	local code="$(__alias_func_template)"
-	eval "${code}"
+	echo -E "${ORIG_CMD}" "$@" '"$@"'
+}
+
+__extend_command_args() {
+	local cmd="${1}"
+
+	__extend_command_func "${cmd}" '__extend_command_args_helper' "$@"
+}
+
+__extend_command_alias_helper() {
+	local aliasBase="${1}"
+	shift
+
+	echo -E "${aliasBase}" "$@" '"$@"'
+}
+
+__extend_command_alias() {
+	local cmd="${1}"
+	shift
+	local aliasBase="${1}"
+	shift
+
+	__extend_command_func "${cmd}" '__extend_command_alias_helper' "${aliasBase}" "$@"
+}
+
+# Overrides default command behaviour if possible
+# Usage: extend_command <command> <options>
+# Options: -t [func|args]  Extension type.
+#                          `func' replaces the command implementation with evaluated output
+#                           value of function(s) passed after this option. ${ORIG_CMD} is
+#                           replaced with backuped original command call.
+#                          `alias` works exactly as defining a shell alias for the command
+#                          `args' extension type just adds supplied arguments to original
+#                          command implementation. This type is default and is used when no
+#                          -t option is supplied.
+extend_command() {
+	local cmd="${1}"
+	shift
+
+	local endOfOptions="no"
+	local extendFunc="__extend_command_args"
+	while [ "${endOfOptions}" == "no" ]; do
+		local arg="${1}"
+		case "${arg}" in
+			"-t")
+				local extType="${2}"
+				case "${extType}" in
+					"func")
+						extendFunc="__extend_command_func"
+						;;
+					"alias")
+						extendFunc="__extend_command_alias"
+						;;
+				esac
+				shift 2
+				;;
+			*)
+				endOfOptions="yes"
+				;;
+		esac
+	done
+
+	#echo "$(${extendFunc} ${cmd} $@)"
+	eval "$(${extendFunc} ${cmd} $@)"
 }
 
 # Colored output for ls & grep
-__set_default_args ls     --color=auto -la
-__set_default_args grep   --color=auto
-__set_default_args egrep  --color=auto
-__set_default_args fgrep  --color=auto
-__set_default_args zgrep  --color=auto
-__set_default_args zegrep --color=auto
-__set_default_args zfgrep --color=auto
+extend_command ls     --color=auto -la
+extend_command grep   --color=auto
+extend_command egrep  --color=auto
+extend_command fgrep  --color=auto
+extend_command zgrep  --color=auto
+extend_command zegrep --color=auto
+extend_command zfgrep --color=auto
 
-__set_default_args xargs  -d '\\\\n' # Separate args on newline only
-__set_default_args nano   -c         # Line numbers
-__set_default_args diff   -ru        # Unified and recursive diff
+extend_command nano   -c         # Line numbers
+extend_command diff   -ru        # Unified and recursive diff
+extend_command xargs  -d '"\\n"' # Sets arguments separator to newline instead of any whitespace
 
-if ! which gedit >/dev/null 2>/dev/null; then
-	# Override gedit only if it's not in $PATH (OSX)
-	gedit() {
-		open -a textwrangler "$@"
-	}
-fi
+__gedit_impl() {
+	for f in "$@"; do
+		[ ! -e "${f}" ] && touch "${f}"
+		[ -e "${f}" ] && open -a textwrangler "${f}"
+	done
+}
+
+extend_command gedit -t alias __gedit_impl
+extend_command edit  -t alias __gedit_impl
+extend_command beep  -t alias afplay '/System/Library/Sounds/Glass.aiff'
+
+__LESS_HOOKS=( check_plist )
+
+__less_hook_check_plist() {
+	local fileType="${1}"
+	if [ "$fileType" == "Apple binary property list" ]; then
+		echo "__less_binary_plist"
+	fi
+}
+
+__less_binary_plist() {
+	local lessFile="${1}"
+	shift
+
+	plutil -convert xml1 -o - "${lessFile}" | less "$@"
+}
+
+__less_check_hooks() {
+	echo 'local lessFile="$1"'
+	echo 'echo "${lessFile}" >&2'
+
+	echo 'local hookFunc=""'
+	echo 'if [ -r "${lessFile}" ]; then'
+	echo '	local fileType="$(file -b "${lessFile}")"'
+	echo '	for hook in '"${__LESS_HOOKS[@]}"'; do'
+	echo '		hookFunc="$(__less_hook_${hook} "${fileType}")"'
+	echo '		if [ ! -z "${hookFunc}" ]; then'
+	echo '			break'
+	echo '		fi'
+	echo '	done'
+	echo 'fi'
+
+	echo 'if [ -z "${hookFunc}" ]; then'
+	echo '	'"${ORIG_CMD}" '"$@"'
+	echo 'else'
+	echo '	${hookFunc} "$@"'
+	echo 'fi'
+}
+
+extend_command less -t func __less_check_hooks # Adds some input filters for `less' command
 
 # UNIX timestamp -> human-readable date
 timestamp2date() {
@@ -201,7 +370,7 @@ pretty_date() {
 
 # Pseudographic version of GitHub's Network pane
 git_branches() {
-	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s"
+	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s" 
 	# TODO: datetime update
 	#| awk '{printf "%s\t%s\t", $1, $2; system ("echo pretty_date $3"); for (i = 4; i <= NF; i++) {printf "%s ", $i}; printf "\n"}'
 }
@@ -211,7 +380,7 @@ __pyurlalias_template() {
 	arg="$1"
 	local name="${arg%%=*}"
 	local func="${arg#*=}"
-
+	
 	echo "${name}"'() {'
 	echo '  python -c "import sys, urllib; print urllib.'"${func}"' (sys.stdin.read ())" "$@"'
 	echo '}'
@@ -233,7 +402,7 @@ __pyurlalias urldecode_p=unquote_plus
 noize() {
 	local beeps="${1:-5}"
 	local delay="${2:-0.1}"
-
+	
 	for i in $(seq 1 "${beeps}"); do
 		echo -ne '\a'
 		sleep "${delay}"
@@ -259,14 +428,14 @@ git_conflicts() {
 _git_srv() {
 	local srv="$1"
 	shift
-  local src="$1"
-  shift
-  local action="$1"
-  shift
-  local repo="$1"
-  shift
+	local src="$1"
+	shift
+	local action="$1"
+	shift
+	local repo="$1"
+	shift
 
-  git "${action}" "${srv}/${src}/${repo}" "$@"
+	git "${action}" "${srv}/${src}/${repo}" "$@"
 }
 
 # _github [source] [action] [repo] [...]
@@ -325,14 +494,18 @@ EOF
 }
 
 # Cross-platform way of getting real file path
-py_realpath() {
-	python -c 'import os, sys; print "\n".join ([os.path.realpath (p) for p in sys.argv [1:]])' "$@"
+__setup_realpath() {
+	if ! which realpath &>/dev/null; then
+		local py_realpath_src=$(cat <<EOF
+			realpath() {
+				python -c 'import os, sys; print "\n".join ([os.path.realpath (p) for p in sys.argv [1:]])' "$@"
+			}
+EOF
+)
+		eval "${py_realpath_src}"
+	fi
 }
-
-# bash-completion
-if [ -f /opt/local/etc/profile.d/bash_completion.sh ]; then
-	. /opt/local/etc/profile.d/bash_completion.sh
-fi
+__setup_realpath
 
 # Prints out shell running time
 shell_uptime() {
@@ -347,34 +520,265 @@ shell_uptime() {
 # Finds mentions of argument in Bash history file
 hgrep() {
 	local pattern="$1"
-	grep "${pattern}" ~/.bash_history
+	grep "${pattern}" "${HISTFILE}"
 }
 
-# Automatically adds echo "\n"; to every php -r call
-__set_php_linewrap() {
-  local cmd="php"
-  local addn_post_args="; echo"
-  local code="$(__alias_func_template)"
-  eval "${code}"
+__php_linewrap() {
+	echo "${ORIG_CMD}" '"$@"'
+	echo 'echo'
 }
-__set_php_linewrap
 
+extend_command php -t func '__php_linewrap' # Automatically adds echo "\n"; to every php -r call
+
+# Checks for changes in local and remote dotfiles.
+# Dotfiles repo is read from $BASHRC_DOTFILES_REPO_PATH; default path is ~/bashrc.
 diff_dotfiles() {
-	for file in *; do
-		diff "${file}" ~/"${file}"
+	local localSubdir="${1:-.}"
+	local dotfilesRepo="${BASHRC_DOTFILES_REPO_PATH:-$(realpath ~/bashrc)}"
+	pushd "${dotfilesRepo}" > /dev/null
+	echo "Path: ${dotfilesRepo}"
+	for item in *; do
+		local repoItem="${item}"
+		local localItem="~/${localSubdir}/${item}"
+		if [ -r "${repoItem}" ] && [ -r "${localItem}" ]; then
+			if [ -f "${repoItem}" ] && [ -f "${localItem}" ]; then
+				diff "${repoItem}" "${localItem}"
+			elif [ -d "${repoItem}" ] && [ -d "${localItem}" ]; then
+				local subdir="${item}"
+				local repoSubdir="$(realpath ${repoItem})"
+				BASHRC_DOTFILES_REPO_PATH="${repoSubdir}" diff_dotfiles "${subdir}"
+			fi
+		fi
 	done | less
+	popd > /dev/null
 }
 
-gobjc() {
-	gcc -framework Foundation -include 'Foundation/Foundation.h' "$@"
+__wtfhd_sigint_trap_tmpl() {
+	echo '__wtfhd_sigint_trap() {'
+	local oldTrap="$1"
+	echo "	$oldTrap"
+	echo '}'
 }
 
-clobjc() {
-	clang -framework Foundation -include 'Foundation/Foundation.h' "$@"
+# Shows files & dirs list sorted by size ascending.
+# Search scope is function's argument or root directory if no argument supplied.
+wtfhd() {
+	local oldSigintTrap="$(trap -p SIGINT | awk '{print $3}' | sed "s/^'//;s/'$//")"
+	eval "$(__wtfhd_sigint_trap_tmpl "${oldSigintTrap}")"
+	trap __wtfhd_sigint_trap SIGINT
+
+	local path="${1:-/}"
+	pushd "${path}" > /dev/null
+	local sizeInfo=$(du -ahd 1 2>/dev/null | sort -h)
+	local sizeInfoRev=$(echo "${sizeInfo}" | tac)
+	unset WTFHD_LARGEST_DIR
+	local largestDir="$(
+		echo "${sizeInfoRev}" | while read sizeInfoLine; do
+			local infoDir=$(echo "${sizeInfoLine}" | awk '{print $2}')
+			if [ "${infoDir}" != '.' ] && [ -d "${infoDir}" ] ; then
+				realpath "${infoDir}"
+				break
+			fi
+		done
+	)"
+	if [ ! -z "${largestDir}" ]; then
+		export WTFHD_LARGEST_DIR="${largestDir}"
+	fi
+	echo "${sizeInfo}"
+	popd > /dev/null
+
+	trap "${oldTrap:--}" SIGINT
 }
 
-jsonpp() {
-	python -c 'import sys, json; print json.dumps (json.loads (sys.stdin.read ()), ensure_ascii = False, indent = 2, separators = (",", ": "))'
+# Changes dir to largest found one.
+# This function checks run results of last wtfhd() and changes directory to largest item if it is a directory, otherwise it does effectively nothing.
+cdToLargest() {
+	if [ ! -z "${WTFHD_LARGEST_DIR}" ] && [ -d "${WTFHD_LARGEST_DIR}" ]; then
+		cd "${WTFHD_LARGEST_DIR}"
+	fi
+}
+
+# Returns models of current Mac device, i.e. "Macbook5,1"
+macdevModel() {
+	sysctlInfo="$(sysctl hw.model 2>/dev/null)"
+	local sysctlResult="$?"
+
+	if [ "${sysctlResult}" -eq 0 ]; then
+		echo "${sysctlInfo}" | sed -E 's/^hw\.model\\s*[:=]//'
+	else
+		echo "Are you really using Mac?"
+	fi
+	unset sysctlInfo
+
+	return "${sysctlResult}"
+}
+
+# Displays last used commands list.
+# Usage: lastCmds [COUNT]
+lastCmds() {
+	local DEFAULT_COUNT=10
+	
+	local count="$1"
+	if ! [ "${count}" -gt 0 ] 2>/dev/null; then
+		count="${DEFAULT_COUNT}"
+	fi
+	
+	tail -n "${count}" "${HISTFILE}"
+}
+
+# Visualizes command return code
+# Usage: __chkCmd [SHOW_OUTPUT] [COMMAND_1] [COMMAND_2] … [COMMAND_N]
+# Commands stderr & stdout are enabled if and only if SHOW_OUTPUT is nonempty
+__chkCmd() {
+	local suppressOutput
+	if [ "${#1}" -gt 0 ]; then
+		suppressOutput="NO"
+	else
+		suppressOutput="YES"
+	fi
+	shift
+
+	local CMD_LEN_LIMIT=40
+	local maxCmdLen=0
+	
+	local cmds=()
+	local cmdOutputs=()
+	
+	while [ "$#" -gt 0 ]; do
+		local cmd="$1"
+		shift
+		
+		local displayCmd="${cmd:-<Nothing>}"
+		if [ "${#cmd}" -gt "${CMD_LEN_LIMIT}" ]; then
+			displayCmd="${displayCmd:0:$((CMD_LEN_LIMIT - 1))}…"
+		fi
+		cmds+=( "${displayCmd}" )
+		
+		local displayCmdLen="${#displayCmd}"
+		if [ "${displayCmdLen}" -gt "${maxCmdLen}" ]; then
+			if [ "${displayCmdLen}" -le "${CMD_LEN_LIMIT}" ]; then
+				maxCmdLen="${displayCmdLen}"
+			else
+				maxCmdLen="${CMD_LEN_LIMIT}"
+			fi
+		fi
+		
+		if [ "${suppressOutput}" == "YES" ]; then
+			exec 3<&0 4>&1 6>&2 </dev/null >/dev/null 2>/dev/null
+		fi
+		
+		local cmdResult
+		${cmd}
+		local cmdCode="$?"
+		
+		if [ "${cmdCode}" -eq 0 ]; then
+			cmdResult="True/Success "
+		else
+			cmdResult="False/Failure"
+		fi
+		cmdOutputs+=( "${cmdResult} (RET: ${cmdCode})" )
+		
+		if [ "${suppressOutput}" == "YES" ]; then
+			exec 0<&3 3<&- 1>&4 4>&- 2>&6 6>&-
+		fi
+	done
+	
+	for cmdN in $(seq 0 $((${#cmds[*]} - 1))); do
+		printf "%${maxCmdLen}s: %s\n" "${cmds[${cmdN}]}" "${cmdOutputs[${cmdN}]}"
+	done
+}
+
+# Visualizes command return code
+# Usage: chkCmd [COMMAND_1] ';' [COMMAND_2] ';' … ';' [COMMAND_N]
+# NOTE: stderr & stdout are redirected to /dev/null while executing commands
+chkCmd() {
+	__chkCmd '' "$@"
+}
+
+# Visualizes command return code
+# Usage: chkCmdDbg [COMMAND_1] ';' [COMMAND_2] ';' … ';' [COMMAND_N]
+# NOTE: commands output is fully preserved
+chkCmdDbg() {
+	__chkCmd 'SHOW' "$@"
+}
+
+# Shortcut for 'open -a "Keychain Access"'
+openKeychain() {
+	open -a 'Keychain Access'
+}
+
+localCC() {
+	localCompile "$1" 'gcc'
+}
+
+localObjC() {
+	localCompile "$1" 'clobjc'
+}
+
+localCompile() {
+	local src="$1"
+	shift
+	local compiler="$@"
+	
+	local found=""
+	local foundTwice=""
+	local ext=""
+	local sourceFile=""
+	
+	for maybeExt in "" ".c" ".m" ".cpp" ".cxx"; do
+		local maybeSourceFile=~/local/src/"${src}${maybeExt}"
+		if [ -f  "${maybeSourceFile}" ]; then
+			if [ ! -z "${found}" ]; then
+				echo 'Ambigous source file' "${src}" >&2
+				return 1
+			else
+				found="YES"
+				ext="${maybeExt}"
+				sourceFile="${maybeSourceFile}"
+			fi
+		fi
+	done
+	if [ -z "${found}" ]; then
+		echo 'Source file' "${src}" 'is not found'
+		return 2
+	fi
+	
+	local executable=~/local/bin/"$(basename "${src}" "${ext}")"
+	${compiler} "${sourceFile}" -o "${executable}"
+}
+
+clear_tmp() {
+	local TMP_DIR=~/"tmp"
+	local MAX_AGE_DAYS=7                 # Delete files older than a week
+	local MIN_CLEAN_INTERVAL=$(( 3600 )) # At least one hour between cleans
+	local LAST_CLEAN_FILE="${TMP_DIR}/.lastclean"
+
+	local currentTimestamp="$(date '+%s')"
+	local lastCleanDate="$(stat "${LAST_CLEAN_FILE}" -c '%Y')"
+	if [ $(( currentTimestamp - lastCleanDate )) -lt "${MIN_CLEAN_INTERVAL}" ]; then
+		return 0
+	fi
+
+	touch "${LAST_CLEAN_FILE}"
+	find "${TMP_DIR}" -mindepth 1 -mtime "+${MAX_AGE_DAYS}" -not -wholename "${LAST_CLEAN_FILE}" -delete
+}
+clear_tmp
+
+# Moves a git tag
+git_move_tag() {
+	local tag="$1"
+	shift
+		
+	local tagMessage="$(git cat-file -p $(git rev-parse "${tag}") | tail -n +6)"
+	git tag -d "${tag}" && git push origin ":refs/tags/${tag}" && git tag -a "${tag}" -m "${tagMessage}" "$@" && git push --tags
+}
+
+# Converts a video to GIF
+vid2gif() {
+	local video="$1"
+	local gif="$2"
+	
+	
 }
 
 # Lists all functions defined in this file
@@ -403,7 +807,7 @@ func_help() {
 	local info_code=$(declare -F "${func}" | awk '{print "local first_line=\""$2"\""; printf "local source_file=\""; for (i = 3; i < NF; i++) {printf $i" ";} printf $NF"\"";}')
 	eval "${info_code}"
 	local help_lines=0
-	while head -n $((first_line - help_lines - 1)) "${source_file}" | tail -n 1 | egrep -o '^\s*#' >/dev/null 2>/dev/null; do
+	while head -n $((first_line - help_lines - 1)) "${source_file}" | tail -n 1 | egrep -o '^\s*#' &>/dev/null; do
 		help_lines=$((help_lines + 1))
 	done
 	if [ $((help_lines)) -gt 0 ]; then
@@ -415,3 +819,9 @@ func_help() {
 		fi
 	fi
 }
+
+# The next line updates PATH for the Google Cloud SDK.
+source '/Users/byss/google-cloud-sdk/path.bash.inc'
+
+# The next line enables shell command completion for gcloud.
+source '/Users/byss/google-cloud-sdk/completion.bash.inc'
