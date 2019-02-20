@@ -80,14 +80,19 @@ shopt -u nocasematch             # comparisons ARE case-sensitive
 shopt -s xpg_echo                # echo has '-e' by default
 
 # bash-completion
-if [ -f /usr/local/etc/bash_completion.sh ]; then
-	. /usr/local/etc/bash_completion.sh
-fi
+[ -f /usr/local/share/bash-completion/bash_completion ] && . /usr/local/share/bash-completion/bash_completion
+# Apple's take on bash-completion for Git
+[ -f /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash ] && . /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash
 
-# Reloads bash environment
-r() {
-	. "${BASH_SOURCE}"
-}
+# nvm
+export NVM_DIR="$HOME/.nvm"
+[ -f "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+# nvm's bach-completion
+[ -f "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
+which -s swift && eval "$(swift package completion-tool generate-bash-script)"
+
+which thefuck > /dev/null 2>/dev/null && eval "$(thefuck --alias)"
 
 # Updates terminal title
 update_title() {
@@ -98,7 +103,7 @@ update_title() {
 expand_path() {
 	local old_ifs="${IFS}"
 	local new_path="${PATH}"
-	
+
 	IFS=':'
 	new_dirs=( "$@" )
 	for dirs_string in "${new_dirs[@]}"; do
@@ -115,21 +120,25 @@ expand_path() {
 
 # Path
 expand_path "~/local/bin" # some stuff
+expand_path "~/.fastlane/bin" # Fastlane tools
 expand_path "/usr/local/opt/coreutils/libexec/gnubin" # Homebrew
+expand_path "$(xcode-select -p)/usr/bin" # Xcode Developer utils
+expand_path "/usr/local/opt/flex/bin" # GNU Flex
+expand_path "/usr/local/opt/bison/bin" # GNU Bison
 
 MANPATH="/usr/local/opt/coreutils/libexec/gnuman:$MANPATH"
 
 # Thick black horizontal line
 hr() {
 	local cols=$((COLUMNS + 0)) # cols to int
-	
+
 	echo -ne "${BLACK_COLOR}${BLACK_BG_COLOR}"
 	if [ ${cols} -gt 0 ]; then
 		python -c 'print " " * '$((cols))
 	else
 		echo -ne '\x1b\n'
 	fi
-	
+
 	echo -ne "${NORMAL}"
 }
 
@@ -285,14 +294,14 @@ extend_command zgrep  --color=auto
 extend_command zegrep --color=auto
 extend_command zfgrep --color=auto
 
-extend_command nano   -c         # Line numbers
-extend_command diff   -ru        # Unified and recursive diff
-extend_command xargs  -d '"\\n"' # Sets arguments separator to newline instead of any whitespace
+extend_command nano   -c            # Line numbers
+extend_command diff   -ru           # Unified and recursive diff
+extend_command xargs  -d "\'\\\n\'" # Sets arguments separator to newline instead of any whitespace
 
 __gedit_impl() {
 	for f in "$@"; do
 		[ ! -e "${f}" ] && touch "${f}"
-		[ -e "${f}" ] && open -a textwrangler "${f}"
+		[ -e "${f}" ] && open -a bbedit "${f}"
 	done
 }
 
@@ -310,15 +319,19 @@ __less_hook_check_plist() {
 }
 
 __less_binary_plist() {
+	local lessBinary="${1}"
+	shift
 	local lessFile="${1}"
 	shift
 
-	plutil -convert xml1 -o - "${lessFile}" | less "$@"
+	plutil -convert xml1 -o - "${lessFile}" | "${lessBinary}" "$@"
 }
 
 __less_check_hooks() {
+	echo 'if [ $# -lt 1 ]; then "'"${ORIG_CMD}"'"; return; fi'
+
 	echo 'local lessFile="$1"'
-	echo 'echo "${lessFile}" >&2'
+	echo 'shift'
 
 	echo 'local hookFunc=""'
 	echo 'if [ -r "${lessFile}" ]; then'
@@ -331,11 +344,7 @@ __less_check_hooks() {
 	echo '	done'
 	echo 'fi'
 
-	echo 'if [ -z "${hookFunc}" ]; then'
-	echo '	'"${ORIG_CMD}" '"$@"'
-	echo 'else'
-	echo '	${hookFunc} "$@"'
-	echo 'fi'
+	echo '${hookFunc} "'"${ORIG_CMD}"'" -FX "${lessFile}" "$@"'
 }
 
 extend_command less -t func __less_check_hooks # Adds some input filters for `less' command
@@ -370,7 +379,7 @@ pretty_date() {
 
 # Pseudographic version of GitHub's Network pane
 git_branches() {
-	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s" 
+	git log --graph --full-history --all --pretty=format:"%Cred%h%Creset%x09%ct%x09%Cgreen%d%Creset%x09%s"
 	# TODO: datetime update
 	#| awk '{printf "%s\t%s\t", $1, $2; system ("echo pretty_date $3"); for (i = 4; i <= NF; i++) {printf "%s ", $i}; printf "\n"}'
 }
@@ -380,7 +389,7 @@ __pyurlalias_template() {
 	arg="$1"
 	local name="${arg%%=*}"
 	local func="${arg#*=}"
-	
+
 	echo "${name}"'() {'
 	echo '  python -c "import sys, urllib; print urllib.'"${func}"' (sys.stdin.read ())" "$@"'
 	echo '}'
@@ -402,7 +411,7 @@ __pyurlalias urldecode_p=unquote_plus
 noize() {
 	local beeps="${1:-5}"
 	local delay="${2:-0.1}"
-	
+
 	for i in $(seq 1 "${beeps}"); do
 		echo -ne '\a'
 		sleep "${delay}"
@@ -530,6 +539,24 @@ __php_linewrap() {
 
 extend_command php -t func '__php_linewrap' # Automatically adds echo "\n"; to every php -r call
 
+__git_reject_unsigned_tags() {
+	cat <<EOF
+	local is_tag_command="no"
+	for arg in "\$@"; do
+		if [ "x\${arg}" = 'xtag' ]; then
+			is_tag_command='yes'
+		elif [ "x\${is_tag_command}" = 'xyes' ] && [ "x\${arg}" = 'x-a' ]; then
+			echo "FUCK YOU BIATCH SIGN YOUR SHIT" >&2
+			return 137
+		fi
+	done
+
+	"${ORIG_CMD}" "\$@"
+EOF
+}
+
+extend_command git -t func '__git_reject_unsigned_tags' # Rejects git tag -a
+
 # Checks for changes in local and remote dotfiles.
 # Dotfiles repo is read from $BASHRC_DOTFILES_REPO_PATH; default path is ~/bashrc.
 diff_dotfiles() {
@@ -617,12 +644,12 @@ macdevModel() {
 # Usage: lastCmds [COUNT]
 lastCmds() {
 	local DEFAULT_COUNT=10
-	
+
 	local count="$1"
 	if ! [ "${count}" -gt 0 ] 2>/dev/null; then
 		count="${DEFAULT_COUNT}"
 	fi
-	
+
 	tail -n "${count}" "${HISTFILE}"
 }
 
@@ -640,20 +667,20 @@ __chkCmd() {
 
 	local CMD_LEN_LIMIT=40
 	local maxCmdLen=0
-	
+
 	local cmds=()
 	local cmdOutputs=()
-	
+
 	while [ "$#" -gt 0 ]; do
 		local cmd="$1"
 		shift
-		
+
 		local displayCmd="${cmd:-<Nothing>}"
 		if [ "${#cmd}" -gt "${CMD_LEN_LIMIT}" ]; then
 			displayCmd="${displayCmd:0:$((CMD_LEN_LIMIT - 1))}…"
 		fi
 		cmds+=( "${displayCmd}" )
-		
+
 		local displayCmdLen="${#displayCmd}"
 		if [ "${displayCmdLen}" -gt "${maxCmdLen}" ]; then
 			if [ "${displayCmdLen}" -le "${CMD_LEN_LIMIT}" ]; then
@@ -662,27 +689,27 @@ __chkCmd() {
 				maxCmdLen="${CMD_LEN_LIMIT}"
 			fi
 		fi
-		
+
 		if [ "${suppressOutput}" == "YES" ]; then
 			exec 3<&0 4>&1 6>&2 </dev/null >/dev/null 2>/dev/null
 		fi
-		
+
 		local cmdResult
 		${cmd}
 		local cmdCode="$?"
-		
+
 		if [ "${cmdCode}" -eq 0 ]; then
 			cmdResult="True/Success "
 		else
 			cmdResult="False/Failure"
 		fi
 		cmdOutputs+=( "${cmdResult} (RET: ${cmdCode})" )
-		
+
 		if [ "${suppressOutput}" == "YES" ]; then
 			exec 0<&3 3<&- 1>&4 4>&- 2>&6 6>&-
 		fi
 	done
-	
+
 	for cmdN in $(seq 0 $((${#cmds[*]} - 1))); do
 		printf "%${maxCmdLen}s: %s\n" "${cmds[${cmdN}]}" "${cmdOutputs[${cmdN}]}"
 	done
@@ -719,12 +746,12 @@ localCompile() {
 	local src="$1"
 	shift
 	local compiler="$@"
-	
+
 	local found=""
 	local foundTwice=""
 	local ext=""
 	local sourceFile=""
-	
+
 	for maybeExt in "" ".c" ".m" ".cpp" ".cxx"; do
 		local maybeSourceFile=~/local/src/"${src}${maybeExt}"
 		if [ -f  "${maybeSourceFile}" ]; then
@@ -742,7 +769,7 @@ localCompile() {
 		echo 'Source file' "${src}" 'is not found'
 		return 2
 	fi
-	
+
 	local executable=~/local/bin/"$(basename "${src}" "${ext}")"
 	${compiler} "${sourceFile}" -o "${executable}"
 }
@@ -768,17 +795,63 @@ clear_tmp
 git_move_tag() {
 	local tag="$1"
 	shift
-		
-	local tagMessage="$(git cat-file -p $(git rev-parse "${tag}") | tail -n +6)"
-	git tag -d "${tag}" && git push origin ":refs/tags/${tag}" && git tag -a "${tag}" -m "${tagMessage}" "$@" && git push --tags
+
+	local tagMessage="$(git cat-file -p $(git rev-parse "${tag}") | tail -n +6  | sed -e '/-----BEGIN PGP SIGNATURE-----/q' | sed -e '/-----BEGIN PGP SIGNATURE-----/d')"
+	git tag -d "${tag}" && git push origin ":refs/tags/${tag}" && git tag -s "${tag}" -m "${tagMessage}" "$@" && git push --tags
+}
+
+# Checks that iTerm integrations are installed and are of latest version
+check_etc_bashrc_iterm() {
+	[ "iTerm.app" == "${TERM_PROGRAM}" ] || return
+
+	local itermrc="/etc/bashrc_${TERM_PROGRAM}"
+	if [ ! -r "${itermrc}" ]; then
+		echo "${RED_COLOR}!!! ${BOLD}${TERM_PROGRAM} integrations are NOT installed${NORMAL}${RED_COLOR} !!!${NORMAL}"
+		return
+	fi
+
+	local serverTimestamp="$(curl -m 2 -sz ${itermrc} -I 'https://iterm2.com/misc/bash_startup.in' | grep '^Last-Modified: ' | cut -d ' ' -f 2- | tr -d '\r')"
+	[ -z "${serverTimestamp}" ] || echo "${YELLOW_COLOR}! ${BOLD}${TERM_PROGRAM} integrations updated; latest version is ${serverTimestamp}${NORMAL}${YELLOW_COLOR} !${NORMAL}\n! Use \`download_latest_enc_bashrc_iterm' to download it !"
+}
+check_etc_bashrc_iterm
+
+# Downloads latest iTerm integrations script
+download_latest_enc_bashrc_iterm() {
+	local itermrc="/etc/bashrc_${TERM_PROGRAM}"
+	sudo curl -z "${itermrc}" -R 'https://iterm2.com/misc/bash_startup.in' -o "${itermrc}"
 }
 
 # Converts a video to GIF
 vid2gif() {
 	local video="$1"
 	local gif="$2"
-	
-	
+
+
+}
+
+__symcrash_xcver() {
+	while [ $# -gt 0 ]; do
+		if [ "$1" = '-xcode' ]; then
+			echo "$2"
+			break
+		fi
+		shift
+	done
+}
+
+# Symbolicate crash
+symcrash() {
+	local xcver="$(__symcrash_xcver "$@")"
+	echo "$@"
+	( DEVELOPER_DIR="/Applications/Xcode${xcver}.app/Contents/Developer" "/Applications/Xcode${xcver}.app/Contents/SharedFrameworks/DVTFoundation.framework/Resources/symbolicatecrash" "$@" ) | less
+}
+
+# Upload an Xcode archive to App Store Connect
+xcarchiveupload() {
+	while [ "$#" -gt 0 ]; do
+		xcodebuild -exportArchive -exportOptionsPlist ~/Projects/UploadToASCOptions.plist -archivePath "$1"
+		shift
+	done
 }
 
 # Lists all functions defined in this file
@@ -820,8 +893,57 @@ func_help() {
 	fi
 }
 
-# The next line updates PATH for the Google Cloud SDK.
-source '/Users/byss/google-cloud-sdk/path.bash.inc'
+export PATH="$HOME/.fastlane/bin:$PATH"
 
-# The next line enables shell command completion for gcloud.
-source '/Users/byss/google-cloud-sdk/completion.bash.inc'
+__simctl_completion() {
+	if [ "${#COMP_WORDS[@]}" -eq 2 ]; then
+		COMPREPLY=( $(compgen -W "${__SIMCTL_COMMANDS}" "${COMP_WORDS[-1]}") )
+	elif [ "${#COMP_WORDS[@]}" -gt 2 ] && [ "${COMP_WORDS[1]}" == 'help' ]; then
+		if [ "${#COMP_WORDS[@]}" -eq 3 ]; then
+			COMPREPLY=( $(compgen -W "${__SIMCTL_COMMANDS}" "${COMP_WORDS[-2]}") )
+		fi
+	else
+		local subcommand="${COMP_WORDS[1]}"
+		local subcommandFormatString="${__SIMCTL_SUBCOMMANDS[${subcommand}]}"
+		if [ -z "${subcommandFormat}" ]; then
+			subcommandFormatString="$(simctl help "${subcommand}" 2>&1 | perl -pe 's/^[^U][^s][^g][^e][^:].*$\\n//; s/^Usage: simctl $ENV{"subcommand"}//; while (s/(<[_\w]*[^\\])(?<!>)\s+/\1_/) {}; s/[<>]//g' )"
+			__SIMCTL_SUBCOMMANDS[${subcommand}]="${subcommandFormatString}"
+		fi
+
+		local subcommandFormat=( ${subcommandFormatString} )
+
+		local termIndex=$(( ${#COMP_WORDS[@]} - 2 ))
+		local term="${subcommandFormat[${termIndex}]}"
+		case "${term}" in
+			"device")
+				COMPREPLY=( $(IFS="$(printf '\n')" compgen -W "${__SIMCTL_DEVICES}" "${COMP_WORDS[-1]}") )
+				;;
+
+			"device_type_id")
+				COMPREPLY=( $(compgen -W "${__SIMCTL_DEVICE_TYPES}" "${COMP_WORDS[-1]}") )
+				;;
+
+			"runtime_id")
+				COMPREPLY=( $(compgen -W "${__SIMCTL_DEVICE_TYPES}" "${COMP_WORDS[-1]}") )
+				;;
+		esac
+	fi
+
+	COMPREPLY=( "${COMPREPLY[@]}" )
+}
+
+__simctl_completion_prepare() {
+	export __SIMCTL_COMMANDS="$(simctl help | sed -E -e '/^[[:print:]]/d' -e '/^$/d' -e 's/^[[:space:]]+([[:alnum:][:punct:]]+).*/\1/')"
+
+	declare -A __SIMCTL_SUBCOMMANDS
+
+	local allDevicesInfo="$(simctl list -j)"
+	export __SIMCTL_DEVICE_TYPES="$(echo "${allDevicesInfo}" | jq --raw-output '.devicetypes[] | .name, .identifier')"
+	export __SIMCTL_RUNTIMES="$(echo "${allDevicesInfo}" | jq --raw-output '.runtimes[] | .name, .identifier')"
+	export __SIMCTL_DEVICES="$(printf 'booted\\n')$(echo "${allDevicesInfo}" | jq --raw-output '.devices[][] | .name, .udid')"
+}
+
+__simctl_completion_prepare
+complete -F __simctl_completion simctl
+
+test -e "${HOME}/.iterm2_shell_integration.bash" && source "${HOME}/.iterm2_shell_integration.bash"
