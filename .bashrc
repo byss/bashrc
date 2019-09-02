@@ -84,13 +84,86 @@ shopt -s xpg_echo                # echo has '-e' by default
 # Apple's take on bash-completion for Git
 [ -f /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash ] && . /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash
 
-# nvm
-export NVM_DIR="$HOME/.nvm"
-[ -f "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
-# nvm's bach-completion
-[ -f "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+__BASHRC_LOCKSDIR="${HOME}/tmp/.bashrc_locks"
+mkdir -p "${__BASHRC_LOCKSDIR}"
 
-which -s swift && eval "$(swift package completion-tool generate-bash-script)"
+# Returns named lock absolute path
+__lock() {
+	echo "${__BASHRC_LOCKSDIR}/.$1_lockdir"
+}
+
+# Attempts to atomically create an new temporary file
+__lock_trylock() {
+	mkdir "$(__lock "$1")" > /dev/null 2>&1
+}
+
+# Basename of a special (as in "regular files" vs "block device pseudofile", namely FIFO in this particular case) file
+# enabling non-busy waits on locks. Wait is induced via read attempt from such file and lasts until any write operation.
+__BASHRC_LOCK_WAITABLE="waitable.$$"
+
+# Repeatedly attempts to acquire a lock until the operation succeeds
+__lock_lock() {
+	local lock_waitable="$(__lock "$1")/${__BASHRC_LOCK_WAITABLE}"
+	mkfifo "${lock_waitable}"
+	if __lock_trylock "$1"; then
+		for waitable in "$(find "$(__lock "$1")" -name 'waitable.*')"; do
+			if [ "${waitable}" == "${lock_waitable}" ] || ! ps "$(basename "${waitable}" | head -c -9)" > /dev/null 2>&1; then
+				rm -f "${waitable}"
+			fi
+		done
+	else
+		: < "${lock_waitable}"
+	fi
+}
+
+# Removes lock file of one exists
+__lock_unlock() {
+	local lockdir="$(__lock "$1")"
+	rm -f "${lockdir}/${__BASHRC_LOCK_WAITABLE}"
+	
+	next_waitable="$(find "$(__lock "$1")" -name 'waitable.*' | head -n 1)"
+	if [ -z "${next_waitable}" ]; then
+		# Last process for this lock
+		rm -rf "${lockdir}" # Effectively supporting lock-related temp files placement in the lock directory itself
+	else
+		# At least one process is still waiting on this lock
+		: > "${next_waitable}" # Simply wake next blocked shell
+		return
+	fi
+}
+
+# Create a lock file and evaluate remaining arguments on successful creation, then remove the created file.
+# Does nothing if the lock file is already existing. In other words, this function provides a non-blocking
+# mutex-like interface to ensure only single command instance is running at a time, which is crucial to 
+# have in some contexts like multiple shell instances being started in parallel.
+__try_synchronized() {
+	local lockName="$1"
+	shift
+	__lock_trylock "${lockName}" || return
+	"$@"
+	__lock_unlock "${lockName}"
+}
+
+# Same as __try_synchronized(), but doesn't immediately return when lock can not be acquired but rather when the
+# lock is being removed.
+__synchronized() {
+	local lockName="$1"
+	shift
+	__lock_lock "${lockName}"
+	"$@"
+	__lock_unlock "${lockName}"
+}
+
+__write_out_swift_package_completion_script() {
+	swift package completion-tool generate-bash-script > "$1"
+	. "$1"
+}
+
+__SPM_COMPLETION_LOCK='spm-completion-gen'
+if which -s swift; then
+	__SPM_COMPLETION_SCRIPT="$(__lock "${__SPM_COMPLETION_LOCK}")/result.sh"
+	__try_synchronized "${__SPM_COMPLETION_LOCK}" __write_out_swift_package_completion_script "${__SPM_COMPLETION_SCRIPT}" && __SPM_COMPLETION_SCRIPT=
+fi
 
 which thefuck > /dev/null 2>/dev/null && eval "$(thefuck --alias)"
 
@@ -123,8 +196,12 @@ expand_path "~/local/bin" # some stuff
 expand_path "~/.fastlane/bin" # Fastlane tools
 expand_path "/usr/local/opt/coreutils/libexec/gnubin" # Homebrew
 expand_path "$(xcode-select -p)/usr/bin" # Xcode Developer utils
+expand_path "$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/bin" # Xcode Developer Toolchain
 expand_path "/usr/local/opt/flex/bin" # GNU Flex
 expand_path "/usr/local/opt/bison/bin" # GNU Bison
+expand_path "/usr/local/opt/gettext/bin" # GNU Gettext
+expand_path "/usr/local/opt/gnu-sed/libexec/gnubin" # GNU Sed
+expand_path "/usr/local/opt/sphinx-doc/bin" # Sphinx
 
 MANPATH="/usr/local/opt/coreutils/libexec/gnuman:$MANPATH"
 
@@ -344,7 +421,7 @@ __less_check_hooks() {
 	echo '	done'
 	echo 'fi'
 
-	echo '${hookFunc} "'"${ORIG_CMD}"'" -FX "${lessFile}" "$@"'
+	echo '${hookFunc} "'"${ORIG_CMD}"'" "${lessFile}" -FX "$@"'
 }
 
 extend_command less -t func __less_check_hooks # Adds some input filters for `less' command
@@ -532,6 +609,20 @@ hgrep() {
 	grep "${pattern}" "${HISTFILE}"
 }
 
+# Finds dSYMs by UUID
+dsymfind() {
+	if [ "$#" -eq 1 ]; then
+		mdfind "com_apple_xcode_dsym_uuids == $1"
+		return
+	fi
+
+	while [ "$#" -gt 0 ]; do
+		echo -n "$1: "
+		dsymfind "$1"
+		shift
+	done
+}
+
 __php_linewrap() {
 	echo "${ORIG_CMD}" '"$@"'
 	echo 'echo'
@@ -654,7 +745,7 @@ lastCmds() {
 }
 
 # Visualizes command return code
-# Usage: __chkCmd [SHOW_OUTPUT] [COMMAND_1] [COMMAND_2] â€¦ [COMMAND_N]
+# Usage: __chkCmd [SHOW_OUTPUT] [COMMAND_1] [COMMAND_2] É [COMMAND_N]
 # Commands stderr & stdout are enabled if and only if SHOW_OUTPUT is nonempty
 __chkCmd() {
 	local suppressOutput
@@ -677,7 +768,7 @@ __chkCmd() {
 
 		local displayCmd="${cmd:-<Nothing>}"
 		if [ "${#cmd}" -gt "${CMD_LEN_LIMIT}" ]; then
-			displayCmd="${displayCmd:0:$((CMD_LEN_LIMIT - 1))}â€¦"
+			displayCmd="${displayCmd:0:$((CMD_LEN_LIMIT - 1))}É"
 		fi
 		cmds+=( "${displayCmd}" )
 
@@ -716,14 +807,14 @@ __chkCmd() {
 }
 
 # Visualizes command return code
-# Usage: chkCmd [COMMAND_1] ';' [COMMAND_2] ';' â€¦ ';' [COMMAND_N]
+# Usage: chkCmd [COMMAND_1] ';' [COMMAND_2] ';' É ';' [COMMAND_N]
 # NOTE: stderr & stdout are redirected to /dev/null while executing commands
 chkCmd() {
 	__chkCmd '' "$@"
 }
 
 # Visualizes command return code
-# Usage: chkCmdDbg [COMMAND_1] ';' [COMMAND_2] ';' â€¦ ';' [COMMAND_N]
+# Usage: chkCmdDbg [COMMAND_1] ';' [COMMAND_2] ';' É ';' [COMMAND_N]
 # NOTE: commands output is fully preserved
 chkCmdDbg() {
 	__chkCmd 'SHOW' "$@"
@@ -849,7 +940,7 @@ symcrash() {
 # Upload an Xcode archive to App Store Connect
 xcarchiveupload() {
 	while [ "$#" -gt 0 ]; do
-		xcodebuild -exportArchive -exportOptionsPlist ~/Projects/UploadToASCOptions.plist -archivePath "$1"
+		xcodebuild -allowProvisioningUpdates -exportArchive -exportOptionsPlist ~/Projects/UploadToASCOptions.plist -archivePath "$1"
 		shift
 	done
 }
@@ -943,7 +1034,22 @@ __simctl_completion_prepare() {
 	export __SIMCTL_DEVICES="$(printf 'booted\\n')$(echo "${allDevicesInfo}" | jq --raw-output '.devices[][] | .name, .udid')"
 }
 
-__simctl_completion_prepare
-complete -F __simctl_completion simctl
+# __simctl_completion_prepare
+# complete -F __simctl_completion simctl
 
-test -e "${HOME}/.iterm2_shell_integration.bash" && source "${HOME}/.iterm2_shell_integration.bash"
+[ -e "~/.iterm2_shell_integration.bash" ] && . "${HOME}/.iterm2_shell_integration.bash"
+[ -e "~/.anka/bash_completion.sh" ] && . "~/.anka/bash_completion.sh"
+
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+
+# The next line updates PATH for the Google Cloud SDK.
+if [ -f '/Users/byss/Downloads/google-cloud-sdk/path.bash.inc' ]; then . '/Users/byss/Downloads/google-cloud-sdk/path.bash.inc'; fi
+
+# The next line enables shell command completion for gcloud.
+if [ -f '/Users/byss/Downloads/google-cloud-sdk/completion.bash.inc' ]; then . '/Users/byss/Downloads/google-cloud-sdk/completion.bash.inc'; fi
+
+if [ ! -z "${__SPM_COMPLETION_SCRIPT}" ]; then
+	__synchronized "${__SPM_COMPLETION_LOCK}" source "${__SPM_COMPLETION_SCRIPT}"
+fi
