@@ -84,86 +84,40 @@ shopt -s xpg_echo                # echo has '-e' by default
 # Apple's take on bash-completion for Git
 [ -f /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash ] && . /Applications/Xcode.app/Contents/Developer/usr/share/git-core/git-completion.bash
 
-__BASHRC_LOCKSDIR="${HOME}/tmp/.bashrc_locks"
-mkdir -p "${__BASHRC_LOCKSDIR}"
-
-# Returns named lock absolute path
-__lock() {
-	echo "${__BASHRC_LOCKSDIR}/.$1_lockdir"
-}
-
-# Attempts to atomically create an new temporary file
-__lock_trylock() {
-	mkdir "$(__lock "$1")" > /dev/null 2>&1
-}
-
-# Basename of a special (as in "regular files" vs "block device pseudofile", namely FIFO in this particular case) file
-# enabling non-busy waits on locks. Wait is induced via read attempt from such file and lasts until any write operation.
-__BASHRC_LOCK_WAITABLE="waitable.$$"
-
-# Repeatedly attempts to acquire a lock until the operation succeeds
-__lock_lock() {
-	local lock_waitable="$(__lock "$1")/${__BASHRC_LOCK_WAITABLE}"
-	mkfifo "${lock_waitable}"
-	if __lock_trylock "$1"; then
-		for waitable in "$(find "$(__lock "$1")" -name 'waitable.*')"; do
-			if [ "${waitable}" == "${lock_waitable}" ] || ! ps "$(basename "${waitable}" | head -c -9)" > /dev/null 2>&1; then
-				rm -f "${waitable}"
-			fi
-		done
-	else
-		: < "${lock_waitable}"
-	fi
-}
-
-# Removes lock file of one exists
-__lock_unlock() {
-	local lockdir="$(__lock "$1")"
-	rm -f "${lockdir}/${__BASHRC_LOCK_WAITABLE}"
+__source_latest_spm_completion_script() {
+	local CACHED_SWIFT_VERSION_PATH="${HOME}/.bashrc_data/.spm-completion-swift-version"
+	local CACHED_SPM_COMPLETION_PATH="${HOME}/.bashrc_data/.spm-completion"
+	local swiftversion="$(swift --version | head -n 1)"
 	
-	next_waitable="$(find "$(__lock "$1")" -name 'waitable.*' | head -n 1)"
-	if [ -z "${next_waitable}" ]; then
-		# Last process for this lock
-		rm -rf "${lockdir}" # Effectively supporting lock-related temp files placement in the lock directory itself
-	else
-		# At least one process is still waiting on this lock
-		: > "${next_waitable}" # Simply wake next blocked shell
-		return
+	mkdir -p "$(dirname "${CACHED_SWIFT_VERSION_PATH}")"
+	
+	local spm_is_latest=
+	if [ -f "${CACHED_SWIFT_VERSION_PATH}" ]; then
+		local cachedversion="$(cat "${CACHED_SWIFT_VERSION_PATH}")"
+		if [ "${swiftversion}" = "${cachedversion}" ]; then
+			spm_is_latest='yes'
+		fi
 	fi
-}
 
-# Create a lock file and evaluate remaining arguments on successful creation, then remove the created file.
-# Does nothing if the lock file is already existing. In other words, this function provides a non-blocking
-# mutex-like interface to ensure only single command instance is running at a time, which is crucial to 
-# have in some contexts like multiple shell instances being started in parallel.
-__try_synchronized() {
-	local lockName="$1"
-	shift
-	__lock_trylock "${lockName}" || return
-	"$@"
-	__lock_unlock "${lockName}"
+	if [ -z "${spm_is_latest}" ]; then
+		local lockdir="${CACHED_SWIFT_VERSION_PATH}.lock"
+		if mkdir "${lockdir}" 2>/dev/null; then
+			echo -n "Generating SPM completion script for ${swiftversion}"
+			if [ -z "${cachedversion}" ]; then
+				echo " (no previouos version)"
+			else
+				echo " (updating from ${cachedversion})"
+			fi
+			swift package completion-tool generate-bash-script > "${CACHED_SPM_COMPLETION_PATH}"
+			echo "${swiftversion}" > "${CACHED_SWIFT_VERSION_PATH}"
+			rm -rf "${lockdir}"
+		fi
+		while [ -d "${lockdir}" ]; do sleep 1; done
+	fi
+	
+	. "${CACHED_SPM_COMPLETION_PATH}"
 }
-
-# Same as __try_synchronized(), but doesn't immediately return when lock can not be acquired but rather when the
-# lock is being removed.
-__synchronized() {
-	local lockName="$1"
-	shift
-	__lock_lock "${lockName}"
-	"$@"
-	__lock_unlock "${lockName}"
-}
-
-__write_out_swift_package_completion_script() {
-	swift package completion-tool generate-bash-script > "$1"
-	. "$1"
-}
-
-__SPM_COMPLETION_LOCK='spm-completion-gen'
-if which -s swift; then
-	__SPM_COMPLETION_SCRIPT="$(__lock "${__SPM_COMPLETION_LOCK}")/result.sh"
-	__try_synchronized "${__SPM_COMPLETION_LOCK}" __write_out_swift_package_completion_script "${__SPM_COMPLETION_SCRIPT}" && __SPM_COMPLETION_SCRIPT=
-fi
+__source_latest_spm_completion_script
 
 which thefuck > /dev/null 2>/dev/null && eval "$(thefuck --alias)"
 
@@ -1049,7 +1003,3 @@ if [ -f '/Users/byss/Downloads/google-cloud-sdk/path.bash.inc' ]; then . '/Users
 
 # The next line enables shell command completion for gcloud.
 if [ -f '/Users/byss/Downloads/google-cloud-sdk/completion.bash.inc' ]; then . '/Users/byss/Downloads/google-cloud-sdk/completion.bash.inc'; fi
-
-if [ ! -z "${__SPM_COMPLETION_SCRIPT}" ]; then
-	__synchronized "${__SPM_COMPLETION_LOCK}" source "${__SPM_COMPLETION_SCRIPT}"
-fi
